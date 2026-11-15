@@ -1,0 +1,22 @@
+const {test}=require('node:test');const assert=require('node:assert/strict');const Module=require('node:module');const fs=require('node:fs/promises');const path=require('node:path');const os=require('node:os');const {EventEmitter}=require('node:events');
+test('Electron main-process startup, trusted IPC, native denial, settings and media routing',async t=>{
+ const root=await fs.mkdtemp(path.join(os.tmpdir(),'jarvis-main-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));await fs.mkdir(path.join(root,'Documents'));const ipc=new Map();let window,approval,modelCalls=0;
+ const app=new EventEmitter();Object.assign(app,{setName:name=>assert.equal(name,'JARVIS'),requestSingleInstanceLock:()=>true,exit:()=>{},whenReady:()=>Promise.resolve(),getPath:name=>name==='userData'?path.join(root,'Data'):path.join(root,'Documents'),getVersion:()=> '1.0.0',quit:()=>{}});
+ class Window extends EventEmitter{constructor(options){super();assert.equal(options.webPreferences.nodeIntegration,false);assert.equal(options.webPreferences.contextIsolation,true);assert.equal(options.webPreferences.sandbox,true);this.webContents=new EventEmitter();this.webContents.mainFrame={url:''};this.webContents.send=()=>{};this.webContents.setWindowOpenHandler=fn=>{assert.deepEqual(fn(),{action:'deny'});};window=this;}isDestroyed(){return false;}async loadFile(file){this.webContents.mainFrame.url=require('node:url').pathToFileURL(file).href;}show(){}focus(){}}
+ const electron={app,BrowserWindow:Window,ipcMain:{handle:(name,fn)=>ipc.set(name,fn)},dialog:{showMessageBox:async(_w,details)=>{approval=details;return {response:0};},showErrorBox:(_title,error)=>{throw Error(error);}},safeStorage:{isEncryptionAvailable:()=>true,getSelectedStorageBackend:()=> 'dpapi',encryptString:s=>Buffer.from(s),decryptString:b=>b.toString()},shell:{openExternal:async()=>{},openPath:async()=>''},globalShortcut:{register:()=>true,unregisterAll:()=>{}},session:{defaultSession:{setPermissionRequestHandler:()=>{},setPermissionCheckHandler:()=>{}}},net:{fetch:async(url,options)=>{
+  if(url.endsWith('/models'))return Response.json({data:[{id:'test-model'}]});if(url.includes('/tts'))return new Response(new Uint8Array([1,2,3]));if(url.includes('transcriptions'))return Response.json({text:'test transcript'});
+  modelCalls++;if(modelCalls===1)return Response.json({choices:[{message:{role:'assistant',content:null,tool_calls:[{id:'one',type:'function',function:{name:'write_file',arguments:JSON.stringify({path:'denied.txt',content:'DO NOT WRITE'})}}]}}]});
+  const payload=JSON.parse(options.body);assert.equal(JSON.parse(payload.messages.at(-1).content).denied,true);return Response.json({choices:[{message:{content:'The write was denied.'}}]});
+ }}};
+ const original=Module._load;Module._load=function(name,parent,isMain){return name==='electron'?electron:original.call(this,name,parent,isMain);};t.after(()=>{Module._load=original;});require('../src/main.cjs');
+ while(!ipc.has('jarvis:bootstrap')||!window.webContents.mainFrame.url)await new Promise(r=>setImmediate(r));
+ const event={sender:window.webContents,senderFrame:window.webContents.mainFrame};const invoke=(name,...args)=>ipc.get('jarvis:'+name)(event,...args);
+ const boot=await invoke('bootstrap');assert.equal(boot.ok,true);assert.equal(boot.value.settings.hasGroqKey,false);assert.match(boot.value.settings.workspace,/Documents/);
+ await assert.rejects(ipc.get('jarvis:bootstrap')({sender:{},senderFrame:{url:'https://evil.example'}}),/Untrusted/);
+ assert.equal((await invoke('settings',{groqKey:'test-key',fishKey:'test-voice-key'})).ok,true);
+ const reply=await invoke('send','Write a test file');assert.equal(reply.ok,true);assert.equal(reply.value.text,'The write was denied.');assert.match(approval.detail,/DO NOT WRITE/);await assert.rejects(fs.access(path.join(boot.value.settings.workspace,'denied.txt')));
+ const voice=await invoke('voice','test');assert.equal(voice.ok,true);assert.deepEqual(Array.from(voice.value),[1,2,3]);
+ const transcript=await invoke('transcribe',new Uint8Array(101));assert.equal(transcript.value,'test transcript');assert.equal((await invoke('transcribe',new Uint8Array(2))).ok,false);
+ assert.equal((await invoke('models','groq')).value[0],'test-model');assert.equal((await invoke('clear-chat')).value,false);
+ const publicSettings=(await invoke('bootstrap')).value.settings;assert.equal(JSON.stringify(publicSettings).includes('test-key'),false);
+});

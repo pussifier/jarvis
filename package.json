@@ -1,0 +1,51 @@
+{
+  "name": "jarvis-desktop",
+  "version": "1.0.0",
+  "description": "JARVIS personal AI assistant for Windows",
+  "author": "JARVIS Desktop contributors",
+  "private": true,
+  "license": "MIT",
+  "main": "src/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.cjs",
+    "test:ui": "node scripts/ui-test.cjs",
+    "check": "node scripts/check.cjs",
+    "dist:win": "electron-builder --win zip --x64 && node scripts/build-installer.cjs",
+    "dist:dir": "electron-builder --win --x64 --dir",
+    "installer": "node scripts/build-installer.cjs"
+  },
+  "devDependencies": {
+    "electron": "45.3.2",
+    "electron-builder": "26.18.0",
+    "playwright-core": "1.65.1"
+  },
+  "build": {
+    "appId": "com.jarvis.personal.desktop",
+    "productName": "JARVIS",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "src/**/*",
+      "README.md",
+      "LICENSE",
+      "THIRD-PARTY.md"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "JARVIS-${version}-Windows-${arch}.${ext}",
+      "signAndEditExecutable": false,
+      "icon": "build/icon.ico"
+    },
+    "compression": "normal"
+  }
+}

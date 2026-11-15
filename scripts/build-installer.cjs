@@ -1,0 +1,3 @@
+'use strict';
+const {execFileSync}=require('node:child_process');const fs=require('node:fs');const {getMakeNsisPath}=require('app-builder-lib/out/toolsets/windows');
+(async()=>{if(!fs.existsSync('release/win-unpacked/JARVIS.exe'))throw Error('Build the Windows app first.');const tool=await getMakeNsisPath('0.0.0');const flag=process.platform==='win32'?'/':'-';execFileSync(tool.path,[flag+'NOCD',flag+'V3','build/installer.nsi'],{stdio:'inherit',env:{...process.env,...tool.env}});const file='release/JARVIS-1.0.0-Windows-Setup.exe';if(fs.statSync(file).size<10000000)throw Error('Installer is unexpectedly small.');console.log('Windows NSIS installer generated:',file);})().catch(e=>{console.error(e.message);process.exit(1);});
